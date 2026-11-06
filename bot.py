@@ -62,7 +62,7 @@ _account = None
 def acct():
     global _account
     if not _account:
-        _account = http(CF + "/accounts", token=os.environ["CF_API_TOKEN"])["result"][0]["id"]
+        _account = os.environ.get("CF_ACCOUNT_ID") or http(CF + "/accounts", token=os.environ["CF_API_TOKEN"])["result"][0]["id"]
     return _account
 
 

@@ -16,6 +16,7 @@ jobs:
       - run: python bot.py
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           BOOF_APP_PASSWORD: ${{ secrets.BOOF_APP_PASSWORD }}
           KEVIN2_APP_PASSWORD: ${{ secrets.KEVIN2_APP_PASSWORD }}
       - if: always()
