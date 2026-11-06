@@ -55,16 +55,30 @@ def remember(mem, kind, text):
     mem["events"] = (mem["events"] + [{"at": now(), "kind": kind, "text": text}])[-MAX_EVENTS:]
 
 
+D1 = "c9795710-05b4-41db-a517-b1cc9db795dd"  # stats/posts log the dashboard reads
 _account = None
 
 
-def think(seed, mem, task, context):
+def acct():
     global _account
-    tok = os.environ["CF_API_TOKEN"]
     if not _account:
-        _account = http(CF + "/accounts", token=tok)["result"][0]["id"]
+        _account = http(CF + "/accounts", token=os.environ["CF_API_TOKEN"])["result"][0]["id"]
+    return _account
+
+
+def log(sql, *params):
+    """Best-effort: the dashboard log must never stop a bot from posting."""
+    try:
+        http(f"{CF}/accounts/{acct()}/d1/database/{D1}/query", token=os.environ["CF_API_TOKEN"],
+             body={"sql": sql, "params": list(params)})
+    except Exception as e:
+        print(f"log skipped: {e}", file=sys.stderr)
+
+
+def think(name, seed, mem, task, context):
+    tok = os.environ["CF_API_TOKEN"]
     prompt = {"situation": context, "journal": mem["journal"], "recent_events": mem["events"], "task": task}
-    out = http(f"{CF}/accounts/{_account}/ai/v1/chat/completions", token=tok, body={
+    out = http(f"{CF}/accounts/{acct()}/ai/v1/chat/completions", token=tok, body={
         "model": MODEL,
         "messages": [{"role": "system", "content": seed + "\n\n" + RULES},
                      {"role": "user", "content": json.dumps(prompt)}],
@@ -74,6 +88,7 @@ def think(seed, mem, task, context):
     note = (reply.get("note") or "").strip()
     if note:
         mem["journal"] = (mem["journal"] + [note])[-MAX_JOURNAL:]
+        log("INSERT INTO journal (bot, at, note) VALUES (?, ?, ?)", name, now(), note)
     return clip(reply["text"])
 
 
@@ -87,19 +102,22 @@ def run_bot(name, cfg, bots):
                     if x["id"].endswith("atproto_pds")), "https://bsky.social") + "/xrpc"
         tok, did = s["accessJwt"], s["did"]
 
-        def post(text, reply=None, rival=None):
+        def post(text, reply=None, rival=None, to_who=None):
             rec = {"$type": "app.bsky.feed.post", "text": text, "createdAt": now()}
             if rival:
                 rec["facets"] = mention_facets(text, *rival)
             if reply:
                 rec["reply"] = reply
-            http(pds + "/com.atproto.repo.createRecord", token=tok,
-                 body={"repo": did, "collection": "app.bsky.feed.post", "record": rec})
+            uri = http(pds + "/com.atproto.repo.createRecord", token=tok,
+                       body={"repo": did, "collection": "app.bsky.feed.post", "record": rec})["uri"]
+            log("INSERT INTO posts (bot, at, kind, text, to_who, uri) VALUES (?, ?, ?, ?, ?, ?)",
+                name, rec["createdAt"], "reply" if reply else "post", text, to_who, uri)
 
         rival_cfg = bots[cfg["rival"]]
         rival = None
         context = {"you": cfg["handle"], "followers": http(PUBLIC + "/app.bsky.actor.getProfile",
                                                            params={"actor": did}).get("followersCount", 0)}
+        log("INSERT OR REPLACE INTO stats (bot, at, followers) VALUES (?, ?, ?)", name, now(), context["followers"])
         if rival_cfg["handle"]:
             rp = http(PUBLIC + "/app.bsky.actor.getProfile", params={"actor": rival_cfg["handle"]})
             rival = (rival_cfg["handle"], rp["did"])
@@ -117,13 +135,13 @@ def run_bot(name, cfg, bots):
         for n in reversed(fresh[:MAX_REPLIES]):  # oldest first
             who, said = n["author"]["handle"], n["record"].get("text", "")
             remember(mem, f"@{who} said to you", said)
-            text = think(cfg["seed"], mem, f"Reply to @{who}, who said: {said}", context)
+            text = think(name, cfg["seed"], mem, f"Reply to @{who}, who said: {said}", context)
             parent = {"uri": n["uri"], "cid": n["cid"]}
-            post(text, {"root": n["record"].get("reply", {}).get("root", parent), "parent": parent}, rival)
+            post(text, {"root": n["record"].get("reply", {}).get("root", parent), "parent": parent}, rival, who)
             remember(mem, f"you replied to @{who}", text)
         mem["seen"] = (mem["seen"] + [n["uri"] for n in fresh])[-MAX_SEEN:]
 
-        text = think(cfg["seed"], mem, "Write your next post." + (f" Tag your rival as @{rival[0]} if you want them to see it." if rival else ""), context)
+        text = think(name, cfg["seed"], mem, "Write your next post." + (f" Tag your rival as @{rival[0]} if you want them to see it." if rival else ""), context)
         post(text, rival=rival)
         remember(mem, "you posted", text)
         print(f"{name}: posted")
