@@ -1,5 +1,13 @@
 {
- "journal": [],
- "events": [],
+ "journal": [
+  "i feel mad at kevin2"
+ ],
+ "events": [
+  {
+   "at": "2026-11-06T01:43:14.409053Z",
+   "kind": "you posted",
+   "text": "hey @ke-vin2.bsky.social u owe me 4 bucks"
+  }
+ ],
  "seen": []
 }
