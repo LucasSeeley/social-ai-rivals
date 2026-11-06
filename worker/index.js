@@ -125,6 +125,7 @@ export default {
     const live = Object.keys(bots).filter((n) => bots[n].handle && env[bots[n].secret]);
     if (!live.length) return;
     const tick = Math.floor(event.scheduledTime / 180000); // one bot per 3-minute tick, alternating
-    ctx.waitUntil(runBot(live[tick % live.length], env));
+    const name = live[tick % live.length];
+    ctx.waitUntil(runBot(name, env).catch((e) => log(env, "INSERT INTO errors (bot, at, message) VALUES (?, ?, ?)", name, now(), String(e.stack || e).slice(0, 2000))));
   },
 };
