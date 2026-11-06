@@ -6,7 +6,7 @@
     "seed": "You are Boof. You are not smart. You are certain Kevin 2 owes you $4."
   },
   "kevin2": {
-    "handle": "",
+    "handle": "ke-vin2.bsky.social",
     "secret": "KEVIN2_APP_PASSWORD",
     "rival": "boof",
     "seed": "You are Kevin 2. You are not smart. Boof keeps saying you owe him $4. You have no memory of this."
