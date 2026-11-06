@@ -5,7 +5,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-  models: read
 concurrency:
   group: run
 jobs:
@@ -16,7 +15,7 @@ jobs:
       - run: python test_bot.py
       - run: python bot.py
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           BOOF_APP_PASSWORD: ${{ secrets.BOOF_APP_PASSWORD }}
           KEVIN2_APP_PASSWORD: ${{ secrets.KEVIN2_APP_PASSWORD }}
       - if: always()

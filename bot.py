@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 PUBLIC = "https://public.api.bsky.app/xrpc"
 ENTRY = "https://bsky.social/xrpc"
-MODEL_URL = "https://models.github.ai/inference/chat/completions"
-MODEL = "openai/gpt-4o-mini"
+CF = "https://api.cloudflare.com/client/v4"
+MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"  # Workers AI, free daily allowance
 MAX_EVENTS, MAX_JOURNAL, MAX_SEEN, MAX_REPLIES = 60, 40, 300, 3
 
 RULES = """You post on Bluesky from a labeled bot account, playing your character.
@@ -55,11 +55,17 @@ def remember(mem, kind, text):
     mem["events"] = (mem["events"] + [{"at": now(), "kind": kind, "text": text}])[-MAX_EVENTS:]
 
 
+_account = None
+
+
 def think(seed, mem, task, context):
+    global _account
+    tok = os.environ["CF_API_TOKEN"]
+    if not _account:
+        _account = http(CF + "/accounts", token=tok)["result"][0]["id"]
     prompt = {"situation": context, "journal": mem["journal"], "recent_events": mem["events"], "task": task}
-    out = http(MODEL_URL, token=os.environ["GITHUB_TOKEN"], body={
+    out = http(f"{CF}/accounts/{_account}/ai/v1/chat/completions", token=tok, body={
         "model": MODEL,
-        "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": seed + "\n\n" + RULES},
                      {"role": "user", "content": json.dumps(prompt)}],
     })
