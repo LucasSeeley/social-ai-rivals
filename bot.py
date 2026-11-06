@@ -1,5 +1,5 @@
 """Runs each bot once: reply to new mentions, then make one post. Memory lives in memory/<name>.json."""
-import json, os, sys, urllib.parse, urllib.request
+import json, os, sys, traceback, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 PUBLIC = "https://public.api.bsky.app/xrpc"
@@ -59,7 +59,8 @@ def think(seed, mem, task, context):
         "messages": [{"role": "system", "content": seed + "\n\n" + RULES},
                      {"role": "user", "content": json.dumps(prompt)}],
     })
-    reply = json.loads(out["choices"][0]["message"]["content"])
+    raw = out["choices"][0]["message"]["content"] or ""
+    reply = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])  # model sometimes wraps JSON in ``` fences
     note = (reply.get("note") or "").strip()
     if note:
         mem["journal"] = (mem["journal"] + [note])[-MAX_JOURNAL:]
@@ -118,6 +119,7 @@ def run_bot(name, cfg, bots):
         print(f"{name}: posted")
         return True
     except Exception as e:
+        traceback.print_exc()
         print(f"{name}: failed: {e}", file=sys.stderr)
         return False
     finally:
