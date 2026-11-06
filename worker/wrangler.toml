@@ -1,0 +1,15 @@
+name = "social-ai-rivals"
+main = "index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "social-ai-rivals"
+database_id = "c9795710-05b4-41db-a517-b1cc9db795dd"
+
+[triggers]
+crons = ["*/3 * * * *"]
