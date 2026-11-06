@@ -1,12 +1,15 @@
 """Runs each bot once: reply to new mentions, then make one post. Memory lives in memory/<name>.json."""
-import json, os, sys, traceback, urllib.parse, urllib.request
+import json, os, random, sys, traceback, urllib.parse, urllib.request
 from datetime import datetime, timezone
 
 PUBLIC = "https://public.api.bsky.app/xrpc"
 ENTRY = "https://bsky.social/xrpc"
 CF = "https://api.cloudflare.com/client/v4"
-MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"  # Workers AI, free daily allowance
+MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"  # small = ~10x more replies per free daily allowance
 MAX_EVENTS, MAX_JOURNAL, MAX_SEEN, MAX_REPLIES = 60, 40, 300, 3
+POST_EVERY_H = 3          # new top-level post at most this often; replies happen every run
+REPLY_AFTER_S = 120       # wait a couple of minutes before answering, so it feels human
+THREAD_CAP = 8            # stop replying in one thread after this many replies (spam guard)
 
 RULES = """You post on Bluesky from a labeled bot account, playing your character.
 Write like a real dumb guy posting, not like an AI: casual, short, lowercase is fine, no hashtags.
@@ -32,6 +35,13 @@ def http(url, body=None, token=None, params=None):
 
 def now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def age_h(at):
+    """Hours since an ISO time; huge if never."""
+    if not at:
+        return 1e9
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(at.replace("Z", "+00:00"))).total_seconds() / 3600
 
 
 def clip(text, n=300):
@@ -117,7 +127,10 @@ def run_bot(name, cfg, bots):
         rival = None
         context = {"you": cfg["handle"], "followers": http(PUBLIC + "/app.bsky.actor.getProfile",
                                                            params={"actor": did}).get("followersCount", 0)}
-        log("INSERT OR REPLACE INTO stats (bot, at, followers) VALUES (?, ?, ?)", name, now(), context["followers"])
+        last = mem.get("last_stats", {})
+        if last.get("n") != context["followers"] or age_h(last.get("at")) >= 1:
+            log("INSERT OR REPLACE INTO stats (bot, at, followers) VALUES (?, ?, ?)", name, now(), context["followers"])
+            mem["last_stats"] = {"n": context["followers"], "at": now()}
         if rival_cfg["handle"]:
             rp = http(PUBLIC + "/app.bsky.actor.getProfile", params={"actor": rival_cfg["handle"]})
             rival = (rival_cfg["handle"], rp["did"])
@@ -130,20 +143,33 @@ def run_bot(name, cfg, bots):
 
         # Bluesky bot rules: only interact with people who tagged or replied to us.
         notes = http(pds + "/app.bsky.notification.listNotifications", token=tok, params={"limit": 30})
+        threads = mem.setdefault("threads", {})
         fresh = [n for n in notes["notifications"] if n["reason"] in ("mention", "reply")
-                 and n["uri"] not in mem["seen"] and n["author"]["did"] != did]
-        for n in reversed(fresh[:MAX_REPLIES]):  # oldest first
+                 and n["uri"] not in mem["seen"] and n["author"]["did"] != did
+                 and age_h(n["indexedAt"]) * 3600 >= REPLY_AFTER_S]
+        done = []
+        for n in reversed(fresh[-MAX_REPLIES:]):  # oldest first
+            done.append(n["uri"])
+            root = n["record"].get("reply", {}).get("root", {"uri": n["uri"], "cid": n["cid"]})
+            if threads.get(root["uri"], 0) >= THREAD_CAP:
+                continue
+            threads[root["uri"]] = threads.get(root["uri"], 0) + 1
             who, said = n["author"]["handle"], n["record"].get("text", "")
             remember(mem, f"@{who} said to you", said)
             text = think(name, cfg["seed"], mem, f"Reply to @{who}, who said: {said}", context)
             parent = {"uri": n["uri"], "cid": n["cid"]}
-            post(text, {"root": n["record"].get("reply", {}).get("root", parent), "parent": parent}, rival, who)
+            post(text, {"root": root, "parent": parent}, rival, who)
             remember(mem, f"you replied to @{who}", text)
-        mem["seen"] = (mem["seen"] + [n["uri"] for n in fresh])[-MAX_SEEN:]
+        mem["seen"] = (mem["seen"] + done)[-MAX_SEEN:]
+        mem["threads"] = dict(list(threads.items())[-100:])
 
+        if age_h(mem.get("last_post")) < POST_EVERY_H:
+            print(f"{name}: replied to {len(done)}")
+            return True
         text = think(name, cfg["seed"], mem, "Write your next post." + (f" Tag your rival as @{rival[0]} if you want them to see it." if rival else ""), context)
         post(text, rival=rival)
         remember(mem, "you posted", text)
+        mem["last_post"] = now()
         print(f"{name}: posted")
         return True
     except Exception as e:
@@ -157,5 +183,7 @@ def run_bot(name, cfg, bots):
 
 if __name__ == "__main__":
     bots = json.load(open("bots.json"))
-    ok = [run_bot(n, c, bots) for n, c in bots.items() if c["handle"] and os.environ.get(c["secret"])]
+    order = [n for n in bots if bots[n]["handle"] and os.environ.get(bots[n]["secret"])]
+    random.shuffle(order)  # nobody always gets the last word
+    ok = [run_bot(n, bots[n], bots) for n in order]
     sys.exit(0 if all(ok) else 1)
