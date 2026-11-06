@@ -18,12 +18,16 @@ Reply with JSON: {"text": "<the post, under 280 characters>", "note": "<one shor
 def http(url, body=None, token=None, params=None):
     if params:
         url += "?" + urllib.parse.urlencode(params)
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "social-ai-rivals"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     data = json.dumps(body).encode() if body is not None else None
     with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=60) as r:
-        return json.load(r)
+        raw = r.read()
+    try:
+        return json.loads(raw)
+    except ValueError:
+        raise RuntimeError(f"{url.split('?')[0]} gave HTTP {r.status}, non-JSON body: {raw[:300]!r}")
 
 
 def now():
