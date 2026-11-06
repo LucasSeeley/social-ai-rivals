@@ -1,25 +1,15 @@
-name: deploy
+name: teardown
 on:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: deploy
 jobs:
-  deploy:
+  teardown:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: node worker/test.mjs
-      - run: npx -y wrangler@4 deploy --config worker/wrangler.toml
+      - run: npx -y wrangler@4 delete --name social-ai-rivals --force
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      - run: jq -n --arg b "$BOOF" --arg k "$KEVIN2" '{BOOF_APP_PASSWORD:$b, KEVIN2_APP_PASSWORD:$k}' | npx -y wrangler@4 secret bulk --config worker/wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          BOOF: ${{ secrets.BOOF_APP_PASSWORD }}
-          KEVIN2: ${{ secrets.KEVIN2_APP_PASSWORD }}
